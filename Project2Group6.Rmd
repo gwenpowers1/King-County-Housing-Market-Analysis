@@ -1,0 +1,698 @@
+---
+title: "STAT 6021 Project 2 Group 6"
+author: "gp8cf - Gwen Powers, abl6ywp - August Lamb, sjh7yg - Silas Hayes, dk9nt - Dana Korotovskikh"
+date: "2023-07-14"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(ggmap)
+library(leaps)
+library(car)
+library(gridExtra)
+library(ROCR)
+library(corrplot)
+library(gt)
+library(faraway)
+library(MASS)
+
+options(scipen = 10000)
+#./dataset.csv
+```
+
+```{r, echo=FALSE}
+houses <- read.csv("kc_house_data.csv", header=T)
+```
+
+```{r data wrangling, echo=FALSE}
+houses = houses %>% dplyr::select(-c(id, date, zipcode, sqft_above))
+houses = houses %>% 
+   mutate(renovated=factor(ifelse(yr_renovated>0, 1, 0)),
+          basement=factor(ifelse(sqft_basement>0, 1, 0)),
+          waterfront=factor(waterfront),
+          binary_grade=factor(ifelse(grade>6, 1, 0)),
+          rooms=bedrooms+bathrooms)
+houses = houses %>% dplyr::select(-c(sqft_basement))
+
+set.seed(1)
+sample = sample.int(nrow(houses), floor(.5*nrow(houses)), replace=F)
+train = houses[sample,]
+test = houses[-sample,]
+```
+
+## (1) Summary of Findings
+
+The process of shopping for a house can be overwhelming, with many homebuyers not knowing what of a wide variety of factors truly impact how affordable or expensive a house is. Because of this, someone unfamiliar with the housing market might end up spending more money on a house based on a factor that actually isn't that valuable to them, all because they didn't understand how different characteristics of a house impact its price. Our report examines the relationship between a wide variety of characteristics of properties in King County, Washington. The goal is to understand how these factors affect the price of the home with the goal of better informing prospective homebuyers of what to consider when shopping for an affordable home. Our report finds a specific set of factors that, when used together, best predict the price of a home in King County. Specifically, this combination of predictors is: whether a house is waterfront or has a view, whether it has a basement, its lot size, number of floors, condition, grade, and the average size of living spaces and lots in its surrounding neighborhood. All of these are positively correlated with higher prices, meaning that as their values increase, there reliably is an increase in house price. Alternatively, houses that are older tend to have higher prices, although this negative correlation between price and the year a house was built is very slight. If a homebuyer is looking to efficiently cut costs, these factors are the first ones they should evaluate to see whether they are willing to trade off on any of them to find a more affordable home.
+
+Most prospective homebuyers look to avoid the expensive repairs and constant upkeep that can come with a house by looking for one of a higher construction quality. Many times, this is difficult to ascertain for a typical homeowner without any expertise. Our report finds that in King County, a prospective buyer can quickly and easily estimate whether a home has an average/above average construction grade or not using three characteristics that show up on any listing: price, square footage, and the year in which the home is built. As price and square footage increase, a home is more likely to have an average or above construction rating. As the age of the home increases, a home is more likely to have a below average construction rating. Specifically for King County we also found that if you're looking for an older home, it is best to look in the western region of the county near the water. However, with these older homes, you're more likely to be purchasing a home with a below average construction grade. If looking for a newer home with an average/above average quality, it is best to focus your search east of Lake Washington where higher quality and newer developments are abundant.
+
+## (2) Dataset Description
+
+This dataset contains 21,613 observations of property sales in King County, Washington between May, 2014 and May, 2015. The dataset included 21 variables before the ones we have added. See the description of variables below.
+
+#### Existing Variables
+
+* `id` (numeric) - Unique ID for each home in the dataset
+* `date` (character) - Date the home was sold
+* `price` (numeric) - Sale price of the home
+* `bedrooms` (numeric) - Number of bedrooms in the home
+* `bathrooms` (numeric) - Number of bathrooms in the home
+* `sqft_living` (numeric) - Square footage of the living space
+* `sqft_lot` (numeric) - Square footage of the land
+* `floors` (factor) - Number of floors in the home
+* `waterfront` (factor) - Logical variable indicating whether the home is waterfront
+* `view` (factor) - Rating from 0-4 of the quality of the view from the home
+* `condition` (numeric) - Rating from 1-5 of the condition of the apartment
+* `grade` (factor) - Rating from 1-13 of the quality of construction and design of the building (with an average building condition being a grade of 7)
+* `sqft_above` (numeric) - Square footage of living space above ground level
+* `sqft_basement` (numeric) - Square footage of living space below ground level
+* `yr_built` (numeric) - Year of construction
+* `yr_renovated` (numeric) - Year of last renovation
+* `zipcode` (numeric) - Zipcode where the home is located
+* `lat` (numeric) - Latitude of the home
+* `long` (numeric) - Longitude of the home
+* `sqft_living15` (numeric) - Average interior square footage of the nearest 15 homes
+* `sqft_lot15` (numeric) - Avg square footage of the land of the nearest 15 homes
+
+#### New Variables
+
+* `binary_grade` (factor) - 1 if `grade` is greater than 7, 0 if not
+* `basement` (factor) - 1 if home has a basement, 0 if not
+* `renovated` (factor) - 1 if home has been renovated since construction, 0 if not
+* `rooms` (numeric) - Total number of bedrooms and bathrooms on the property
+
+## (3) Questions
+
+**1. Which housing variables in King County, Washington affect house sale prices the most, and in what way?**
+
+***Motivation***
+
+Many of our group members want to live in a big city in the future, especially after we earn our master's degrees in data science and have to find work in the real world. We can determine what to look for while house-hunting in the future by researching what characteristics predict home prices, especially in a county that encompasses a large city like Seattle. We can effectively analyze whether a home is overpriced or underpriced by studying which housing elements have the most influence on its pricing.
+
+**Response Variable:** `price`
+
+**2. Which housing variables could prospective buyers use to quickly estimate whether the construction grade of a house in King County, Washington is above or below average?**
+
+***Motivation***
+
+Cities and counties are distinguished by areas of wealthy and poor development. By examining how housing characteristics influence a building's construction grade, we can discover which houses are safer and more robust. When considering potential housing, it is critical to think long-term and to invest in a property that will last for many years. Living in a building with a lower grade might result in a variety of infrastructure concerns as well as health risks. By educating ourselves on what housing elements commonly connect to a higher grade, we will know what to look for when house hunting and making investment choices in the future.
+
+**Response Variable:** `binary_grade`
+
+## (4) Question 1 Visualizations
+
+**Univariate Visualization: Spread of Response Variable (Price)**
+```{r, echo=FALSE,message=FALSE,warning=FALSE,out.width='70%',fig.align='center'}
+plot0 = ggplot2::ggplot(houses, aes(x=price))+
+  geom_density()+
+  labs(x="price", title="Density of Price")
+plot0
+```
+First, we evaluate the spread of our response variable, price, but using a density plot. Based on the right-skew seen in this visualization, a large majority of the houses in this dataset have lower prices on the scale, with a major peak around $500,000. 
+
+
+**Bivariate Visualizations: All Predictors against Price**
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot1 = ggplot2::ggplot(houses, aes(x=sqft_living, y=price))+
+  geom_point(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="sqft_living", y="price", title = "Price vs. Sqft Living", caption = "This scatterplot shows a strong positive  \ncorrelation between sqft_living and price")
+
+plot2 = ggplot2::ggplot(houses, aes(x=sqft_lot, y=price))+
+  geom_point(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="sqft_lot", y="price", title = "Price vs. Sqft Lot", caption = "This scatterplot shows a weak positive \ncorrelation between sqft_lot and price")
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=7, fig.height=3}
+grid.arrange(plot1, plot2, ncol=2)
+```
+
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot3 = ggplot2::ggplot(houses, aes(x=as.factor(floors), y=price))+
+  geom_boxplot(color = "black",fill="#00a8e8",shape=21,alpha=0.5)+
+  geom_smooth(method = "lm")+
+  labs(x="floors", y="price", title = "Price vs. Floors", caption = "These boxplots show a weak positive correlation \nbetween floors and price, with houses that have \n2.5 floors having the largest mean price and IQR")
+
+#plot4 = ggplot2::ggplot(houses, aes(x=waterfront, y=price))+
+#  geom_boxplot(color = "black",fill="#00a8e8",shape=21,alpha=0.5)+
+#  geom_smooth(method = "lm")+
+#  labs(x="waterfront", y="price", title = "Price against Waterfront")
+
+plot5 = ggplot2::ggplot(houses, aes(x=as.factor(view), y=price))+
+  geom_boxplot(color = "black",fill="#00a8e8",shape=21,alpha=0.5)+
+  geom_smooth(method = "lm")+
+  labs(x="view", y="price", title = "Price vs. View", caption = "These boxplots show more of a strong positive \ncorrelation between view and price, with the mean \nsteadily increasing as view quality also increases")
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=7, fig.height=3}
+grid.arrange(plot3, plot5, ncol=2)
+```
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot6 =ggplot2::ggplot(houses, aes(x=condition, y=price))+
+  geom_jitter(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="condition", y="price", title = "Price vs. Condition", caption = "This jitterplot shows no strong correlation between\n condition and price, although it is telling of the\nhigh count of houses with higher conditions")
+
+plot7 =ggplot2::ggplot(houses, aes(x=as.factor(grade), y=price))+
+  geom_boxplot(color = "black",fill="#00a8e8",shape=21,alpha=0.5)+
+  geom_smooth(method = "lm")+
+  labs(x="grade", y="price", title = "Price vs. Grade", caption = "These boxplots show a strong positive correlation \nbetween grade and price, with mean prices \nand IQRs increasing as grade increases")
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=7, fig.height=3}
+grid.arrange(plot6, plot7, ncol=2)
+```
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot8 =ggplot2::ggplot(houses, aes(x=yr_built, y=price))+
+  geom_point(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="yr_built", y="price", title = "Price vs. Year Built", caption = "This scatterplot shows no strong correlation\n between year built and price, with a pretty even \nspread of houses across all years built")
+
+plot9 =ggplot2::ggplot(houses, aes(x=sqft_living15, y=price))+
+  geom_point(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="sqft_living15", y="price", title = "Price vs. Avg. Neighborhood\n Living Sqft", caption = "This scatterplot shows a strong, positive correlation \nbetween average neighborhood living space sqft and price.")
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=7, fig.height=3}
+grid.arrange(plot8, plot9, ncol=2)
+```
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot10 =ggplot2::ggplot(houses, aes(x=sqft_lot15, y=price))+
+  geom_point(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="sqft_lot15", y="price", title = "Price vs. Avg. Neighborhood \nLot Sqft", caption = "This scatterplot shows a weak, positive correlation \nbetween average neighborhood lot sqft and price")
+
+plot11 =ggplot2::ggplot(houses, aes(x=basement, y=price))+
+  geom_boxplot(color = "black",fill="#00a8e8",shape=21,alpha=0.5)+
+  geom_smooth(method = "lm")+
+  labs(x="basement", y="price", title = "Price vs. Basement", caption = "These boxplots show no strong correlation between\n whether a house has a basement and price, with relatively \nsimilar mean prices and IQRs, although there are more \noutliers of higher price for houses with basements")
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=7, fig.height=3}
+grid.arrange(plot10, plot11, ncol=2)
+```
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot12 =ggplot2::ggplot(houses, aes(x=renovated, y=price))+
+  geom_boxplot(color = "black",fill="#00a8e8",shape=21,alpha=0.5)+
+  geom_smooth(method = "lm")+
+  labs(x="renovated", y="price", title = "Price vs. Renovated", caption = "These boxplots show a very weak positive correlation between\n whether a house was renovated and price, with renovated\n houses having a slightly larger mean price and IQR")
+
+plot13 =ggplot2::ggplot(houses, aes(x=rooms, y=price))+
+  geom_point(shape=21,alpha=0.5)+
+  geom_smooth(method = "lm",color="#00a8e8",alpha=0.5)+
+  labs(x="rooms", y="price", title = "Price vs. Rooms", caption = "This scatterplot shows a strong, positive correlation between\n rooms and price, with houses with more combined \nbathrooms and bedrooms having higher prices")
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=7, fig.height=3}
+grid.arrange(plot12, plot13, ncol=2)
+```
+
+**Multivariate Visualizations: Most Influential Predictors against Price based on Waterfront**
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot14 = ggplot2::ggplot(houses, aes(x=sqft_living,y=price))+ 
+  geom_jitter(aes(color=waterfront),shape=21,alpha=0.45)+ 
+  geom_smooth(method = "lm", se=FALSE,fullrange=TRUE,aes(color=waterfront))+ 
+  scale_color_manual(values=c("black","#00a8e8"))+
+  facet_wrap(~waterfront)+
+  labs(x="sqft_living", y="price", title="Price vs. Sqft Living by Waterfront", caption = "These side by side scatterplots show much more of a strong and positive\n correlation between sqft of living space and price for waterfront houses, \nalthough non-waterfront houses also have this strong, positive correlation") 
+
+plot15 = ggplot2::ggplot(houses, aes(x=as.factor(view),y=price))+ 
+  geom_boxplot(aes(color=waterfront),shape=21,alpha=0.45)+ 
+  geom_smooth(method = "lm", se=FALSE,fullrange=TRUE,aes(color=waterfront))+ 
+  scale_color_manual(values=c("black","#00a8e8"))+
+  facet_wrap(~waterfront)+
+  labs(x="view", y="price", title="Price vs. View by Waterfront", caption = "These side by side boxplots show a similar but slightly stronger positive\n correlation between view and price for waterfront houses, with mean prices \nand IQRs of better view houses being higher for waterfront houses, \nand notably no waterfront houses that have the lowest quality views") 
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=11, fig.height=3}
+grid.arrange(plot14, plot15, ncol=2)
+```
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot16 = ggplot2::ggplot(houses, aes(x=grade,y=price))+ 
+  geom_jitter(aes(color=waterfront),shape=21,alpha=0.45)+ 
+  geom_smooth(method = "lm", se=FALSE,fullrange=TRUE,aes(color=waterfront))+ 
+  scale_color_manual(values=c("black","#00a8e8"))+
+  facet_wrap(~waterfront)+
+  labs(x="grade", y="price", title="Price vs. Grade by Waterfront", caption = "These side by side scatterplots show much more of a strong and positive\n correlation between grade and price for waterfront houses, although \nnon-waterfront houses also have this strong, positive correlation") 
+
+plot17 = ggplot2::ggplot(houses, aes(x=condition,y=price))+ 
+  geom_jitter(aes(color=waterfront),shape=21,alpha=0.45)+ 
+  geom_smooth(method = "lm", se=FALSE,fullrange=TRUE,aes(color=waterfront))+ 
+  scale_color_manual(values=c("black","#00a8e8"))+
+  facet_wrap(~waterfront)+
+  labs(x="condition", y="price", title="Price vs. Condition by Waterfront", caption = "These side by side jitterplots show a weak, negative correlation between \ncondition and price for waterfront houses, although non-waterfront houses\n don't seem to have any correlation between condition and price") 
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=11, fig.height=3}
+grid.arrange(plot16, plot17, ncol=2)
+```
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, include = FALSE}
+plot18 = ggplot2::ggplot(houses, aes(x=yr_built,y=price))+ 
+  geom_point(aes(color=waterfront),shape=21,alpha=0.1)+ 
+  geom_smooth(method = "lm", se=FALSE,fullrange=TRUE,aes(color=waterfront))+ 
+  scale_color_manual(values=c("black","#00a8e8"))+
+  facet_wrap(~waterfront)+
+  labs(x="yr_built", y="price", title="Price vs. Year Built by Waterfront", caption = "These side by side scatterplots show much more of a strong and positive\n correlation between year built and price for waterfront houses, with non-waterfront\n houses having seemingly no correlation between year built and price") 
+
+plot19 = ggplot2::ggplot(houses, aes(x=floors,y=price))+ 
+  geom_jitter(aes(color=waterfront),shape=21,alpha=0.45)+ 
+  geom_smooth(method = "lm", se=FALSE,fullrange=TRUE,aes(color=waterfront))+ 
+  scale_color_manual(values=c("black","#00a8e8"))+
+  facet_wrap(~waterfront)+
+  labs(x="floors", y="price", title="Price vs. Floors by Waterfront", caption = "These side by side jitterplots show much more of a strong and positive\n correlation between floors and price for waterfront houses, with non-waterfront \nhouses having a very weak, positive correlation between floors and price") 
+```
+```{r, warning= FALSE, echo = FALSE, message = FALSE, fig.width=11, fig.height=3}
+grid.arrange(plot18, plot19, ncol=2)
+```
+
+## (5) Question 1 Linear Regression Explanation
+
+```{r, echo=FALSE}
+subsethouses <- train%>%
+  dplyr::select(-c(lat, long, bedrooms, bathrooms, yr_renovated, sqft_living, binary_grade))
+```
+
+### Data Wrangling
+
+We began by subsetting our `train` dataframe, removing variables we believed to be irrelevant to our analysis. This included the variables `lat` and `long`, which represent the coordinates of each home sold. We dropped these variables because they had an outsized effect on our model in our exploratory analysis, but ultimately were not helpful in reliably predicting the sale price of the home. Additionally, there were high concentrations of houses in the coordinate region around Seattle but significantly fewer observations elsewhere in King County, so we suspected that including these predictors would introduce an unwanted bias to the model. Additionally, after creating some new variables that we believed would be relevant to our model, we removed some of the original variables they had been derived from in order to prevent unwanted multicollinearity. The variables that were removed include `bedrooms` and `bathrooms`, which we combined into a variable called `rooms`, as well as the continuous variable `yr_renovated` since it would have a strong correlation with the logical variable `renovated`. We suspected that `sqft_living` would have significant multicollinearity with `rooms` and possibly with `sqft_living15`, so we decided to drop that too. Finally, we removed the logical variable `binary_grade` as it would be strongly correlated with the continuous variable `grade`.
+
+### Model Selection
+
+Next, we created a linear model with the reduced dataset, predicting `price` using all remaining variables.
+
+```{r, echo=FALSE}
+houses_lm <- lm(price~., data=subsethouses)
+summary(houses_lm)
+```
+
+All predictors in this model were indicated as significant, but we decided to run a few automated refinements to ensure we had the best model possible. We will determine which models have the highest Adjusted $R^2$ and lowest Mallow's $C_p$ and $BIC$ values.
+
+```{r, echo=FALSE}
+allreg <- regsubsets(price~., data=subsethouses, nvmax=20)
+
+which.max(summary(allreg)$adjr2)
+which.min(summary(allreg)$cp)
+which.min(summary(allreg)$bic)
+```
+
+`Model 12` (the full model) has the best $R^2_{adj}$ and $C_p$ values, while `Model 9` has the best $BIC$. We will try forward and backward selection processes as well.
+
+```{r, echo=FALSE, include=FALSE}
+regnull <- lm(price~1, data=subsethouses)
+step(regnull, scope=list(lower=regnull, upper=houses_lm), direction="forward")
+```
+
+```{r, echo=FALSE, include=FALSE}
+step(houses_lm, scope=list(lower=regnull, upper=houses_lm), direction="backward")
+```
+
+Both processes reached the same conclusion that the full model is the optimal solution, having the lowest $AIC$. To summarize, four out of five automated selection processes have identified the full model as the optimal solution, while the fifth identified `Model 9` as optimal. `Model 9` drops the predictors `sqft_lot`, `sqft_lot15`, and `renovated`. We will test this divergence of opinion with a General Linear F Test.
+
+```{r, include=FALSE, echo=FALSE}
+coef(allreg, 9)
+reduced_lm <- lm(price~floors+waterfront+view+condition+grade+yr_built+sqft_living15+basement+rooms, data=subsethouses)
+```
+
+$H_0: \hat{\beta}_{sqft\_lot} = \hat{\beta}_{sqft\_lot15} = \hat{\beta}_{renovated} = 0$
+
+$H_A:$ At least one dropped predictor has a significant relationship with the response
+
+```{r, echo=FALSE}
+anova(reduced_lm, houses_lm)$F[2]
+qf(1-0.05, 3, 10793)
+```
+
+With an F-statistic of 6.462 compared to a critical value of 2.606, we can reject the null hypothesis that the dropped predictors are useless to the model.
+
+```{r, echo=FALSE}
+anova(reduced_lm, houses_lm)$"Pr(>F)"[2]
+```
+
+This evaluation is confirmed by the p-value of 0.0002 being less than a significance of $\alpha=0.05$. Based on these values, we conclude that the full model is more useful in predicting `price` than `Model 9`.
+
+### Multicollinearity Testing
+
+Next, we will check for signs of lingering multicollinearity within the full model by reviewing its Variance Inflation Factors and a correlation matrix between all predictors.
+
+```{r, echo=FALSE}
+vif(houses_lm)
+```
+
+There are no signs of multicollinearity in this model, with all VIF values being less than 5. This can be further confirmed by noting that there are no suspiciously high correlations in the dataset's correlation matrix below.
+
+```{r, echo=FALSE}
+subsethouses%>%
+  select_if(is.numeric)%>%
+  cor()%>%
+  round(3)
+```
+
+The highest correlation with `price` comes from `grade`, which makes sense as properties with better construction quality should be more expensive than those of lower quality.
+
+### Diagnostics and Remediation
+
+Satisfied with our model, we will now check its residual plot to ensure it meets Assumption #1 (errors have mean 0) and Assumption #2 (errors have constant variance). We will also review the Q-Q plot to see if it follows a normal distribution.
+
+```{r, echo=FALSE}
+par(mfrow=c(2,2))
+plot(houses_lm)
+```
+
+After a visual inspection, we believe the model satisfies Assumption #1 but violates Assumption #2, as the points are evenly distributed above and below the line, yet vertically fan out when moving from left to right. The model also does not appear to follow a normal distribution as revealed by the nonlinear relationship shown in the Q-Q plot. To remediate this, a transformation of the response variable, `price`, will be necessary. We will create a Box-Cox plot to determine the correct $\lambda$ value to use for the transformation.
+
+```{r, echo=FALSE}
+boxcox(houses_lm)
+```
+
+Because the indicated range is close to 0, and because we hope to be able to interpret the results properly, we will proceed with a log-transformation of `price`. We will make a new dataframe with `price` being replaced by the new, transformed version, called `ystar`. We will then create a new linear model using this dataset and transformed reponse variable to check its Residual and Q-Q plots.
+
+```{r, echo=FALSE}
+xf_houses <- subsethouses%>%
+  mutate(ystar=log(price))%>%
+  dplyr::select(-c(price))
+```
+
+**Transformed Residual Plots**
+
+```{r, echo=FALSE}
+xf_lm <- lm(ystar~., data=xf_houses)
+par(mfrow=c(2,2))
+plot(xf_lm)
+```
+
+These plots indicate that the model now satisfies both Assumption #1 and Assumption #2, and follows a normal distribution. The Partial Regression Plots confirm that its predictors satisfy both Assumptions as well.
+
+```{r, echo=FALSE}
+avPlots(xf_lm)
+```
+
+### Model Testing
+
+Satisfied with our model, we will run our testing dataset through it to assess its performance in the field. We first must modify the `test` dataset to match the modifications made to `train`, including removing unnecessary variables and those that have high multicollinearity, and by log-transforming `price` to create `ystar`. After plugging this modified test dataset into the model, we will plot out the predicted vs. actual log price.
+
+```{r, echo=FALSE}
+new_test <- test%>%
+  mutate(ystar=log(price))%>%
+  dplyr::select(-c(lat, long, bedrooms, bathrooms, yr_renovated, binary_grade, price, sqft_living))
+```
+
+```{r, echo=FALSE}
+eval <- predict(xf_lm, newdata=new_test)
+```
+
+```{r, echo=FALSE}
+eval_full <- data.frame(predicted=eval, actual=new_test$ystar)
+ggplot(eval_full, aes(x=predicted, y=actual))+
+  geom_point()+
+  geom_abline(slope=1, intercept=0, color="#00a8e8")+
+  labs(x="Predicted Log Price", y="Actual Log Price", title="Predicted vs Actual Log Prices")
+```
+
+### Conclusion
+
+It appears that our model performs quite well on the test data. We placed a line with a slope of 1 on the graph to represent a line of perfect fit, and generally the data points fall positively along this line. We are pleased with the performance of this model and can conclude that the predictors `sqft_lot`, `floors`, `waterfront`, `view`, `condition`, `grade`, `yr_built`, `sqft_living15`, `sqft_lot15`, `renovated`, `basement`, and `rooms`, when taken together, are useful in determining the sale price of homes in King County, WA. Specifically, when controlling for the other predictors, for each one unit increase in each numeric variable, price can be determined by multiplying $e^{response}$. For the logical predictors in the model, $\log{\left(price\right)}$ increases by $e^{response}$ in the presence of a `TRUE` value of the predictor, when controlling for other variables.
+
+Our final regression equation for the model is: $$\begin{aligned} \log{\left(price\right)} = 20.233 + 0.160floors+0.435waterfront+0.045view+0.051condition+0.240grade\\-0.005yr\_built+0.000sqft\_living15+0.000sqft\_lot15+0.042renovated+0.133basement+0.034rooms \end{aligned}$$
+
+For the most part, these coefficients seem consistent with reality, as a higher price should correspond with more land, better build quality and condition, number of rooms and floors, presence of a basement and a good view, whether the home has been renovated or has a water view, and the characteristics of nearby properties. One surprising conclusion from this equation is an inverse relationship between the age of the home and the price. It is possible that older homes in King County have more desirable qualities than newer homes, but we would not necessarily guessed this on our own.
+
+## (6) Question 2 Visualizations
+
+### Correlation Plot:
+
+We started off with data exploration to see how our variables correlate with each other and the predictor. Due to the large number of variables, we expected there to be high correlation values amongst predictors, and possible multicollinearity issues.
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+houses_corr_plot = train %>%
+  dplyr::select(-c(waterfront, condition, renovated, basement, binary_grade))
+cor(houses_corr_plot)
+```
+We see that `sqft_above` is highly correlated with `sqft_living`, which makes sense considering the value of `sqft_above` is within the value of `sqft_living`. `sqft_living15` and `sqft_lot15` are also highly correlated with `sqft_living` and `sqft_lot`, which is plausible considering that the sqft of houses in the neighborhood will be highly similar to the sqft of the observation itself. 
+
+### Box and Density Plots:
+
+We proceded to make some box plots and density plots to asses how our response variable is related to certain predictors.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+logplot1 = ggplot(train, aes(x = binary_grade, y = sqft_living)) +
+  geom_boxplot() + labs(x = "Building Grade", y = "Sqft of Living", title = "1. Grade vs Sqft of living")
+
+logplot2 = ggplot(train, aes(x=binary_grade, y=price))+
+  geom_boxplot()+ labs(x="Building Grade", y = "Price", title= "2. Grade vs Pricing")
+  
+logplot3 = ggplot2::ggplot(train, aes(x=floors, color=binary_grade))+
+geom_density()+ labs(title="3. Density of Floors by Grade")
+
+logplot4 = ggplot2::ggplot(train, aes(x=rooms, color=binary_grade))+
+geom_density()+ labs(title="4. Density of Rooms by Grade")
+
+logplot5 = ggplot(train, aes(x=view, color=waterfront)) + geom_density() +
+   labs(x="View", title="5. Distribution of View by Waterfront")
+
+grid.arrange(logplot1, logplot2, logplot3, logplot4, logplot5, ncol=2)
+```
+We see in plot 1 that higher building grades (`binary_grade` greater than 6) typically have a higher average mean `sqft_living`, over lower building grades (`binary_grade equal to 6 or lower`). We also see that there are many outliers in the higher building grade category, thus we have to consider the possibility of skewed results due to extreme observations.
+
+Based on plot 2, higher building grades on average have a higher `price`; like before we see that there are many outliers in our data set. 
+
+Based on plot 3, a higher proportion of buildings with a higher grade have 2 floors over 1 floor. Whereas, a higher proportion of lower grade buildings have 1-1.5 floors
+
+Plot 4 shows that able larger proportion of high grade buildings have 5-10 rooms. However a larger proportion of low grade buldings have 3-5 rooms.
+
+To asses the relationship between two variable that could encompass each other, we also looked at a density plot between `waterfront` and `view`. Plot 5 above tells us that a high proportion of `view` = 3 or above, are correlated to `waterfront` = 1. On the other hand, a large proportion of `view` = 0, correlates to `waterfront` = 0. We can conclude that `waterfront` largely predicts `view`, where the prsence of a waterfront correlates to a good view. 
+
+### Map:
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+qmplot(long, lat, data=train, maptype="toner-lite", geom="blank")+
+   geom_point(aes(color=yr_built, alpha=0.1), size=.5)+
+   facet_wrap(~binary_grade)+
+   labs(title="Location of Properties by Grade and Year Built")
+```
+
+We then made a map plot in order to see how concentrated our observations are in relation to location. Looking above, we see that the low grades are more vertically clustered, while high grades are scattered all around. The mean of the higher grades is to the east of the mean of the lower grades, making us consider that `lat` is a less important variable than `long`.
+
+## (7) Question 2 Logistic Regression Explanation
+
+### Variable Selection:
+
+Our first step for applying logistic regression to our question centered on a building's construction grade was to remove variables that have an effect captured by other variables. We first removed `grade` as it perfectly predicts our binary variable `binary_grade`. We then removed `yr_renovated` because its effect is captured by its binary analogue, `renovated`. Similarly, we removed both `bedrooms` and `bathrooms` because they were combined into the `rooms` variable. Next, we removed `lat` but not `long` because our map above showed that latitude had little impact on grade but longitude seemed to have an effect. We also decided to remove `sqft_lot` as the size of the lot should have no theoretical impact on a house's construction grade. Finally, we removed `view` because our exploratory visualizations showed that `view` was highly dependent on `waterfront`. We believe this is because `view` is a subjective rating and properties with waterfront are rated as having views of 3 or 4, while those without typically have views of 0. Because `waterfront` is dictating `view`, we decided to keep `waterfront` rather than `view`. 
+
+### Logistic Regression Model #1:
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+model_df0 = train %>% dplyr::select(-c(yr_renovated, grade, lat, bedrooms, bathrooms, view, sqft_lot))
+model_no_interaction0 = glm(binary_grade~., model_df0, family="binomial")
+model_df1 = train %>% dplyr::select(-c(yr_renovated, grade, lat, bedrooms, bathrooms, view, sqft_lot, floors, basement))
+model_no_interaction1 = glm(binary_grade~., model_df1, family="binomial")
+summary(model_no_interaction0)
+```
+
+Using our remaining variables, we created a logistic regression model to predict `binary_grade` without any interaction terms. We chose to attempt to fit a model with all of our remaining variables because our question asks specifically about which variables help the most in predicting the grade of a house. Based on the individual Wald Z-tests, we found that `floors` and `basement` were individually insignificant in predicting `binary_grade` in the presence of other variables, having p-values of .11 and .08 respectively -- both above our alpha level of 0.05.
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+lrt_test = data.frame(full=model_no_interaction0$deviance, reduced=model_no_interaction1$deviance, g=model_no_interaction1$deviance - model_no_interaction0$deviance, chi_sq=1-pchisq(model_no_interaction1$deviance - model_no_interaction0$deviance, 2))
+colnames(lrt_test) = c("Residual Deviance (Full)", "Residual Deviance (Reduced)", "Delta G", "p-value")
+gt(lrt_test)
+```
+
+To assess whether to drop these variables, we conducted a likelihood ratio test between our full model and a model without `floors` and `basement`. The residual deviance for the reduced model was 3651.89, while the full model had a residual deviance of 3644.12, giving us a $\Delta G$ of 7.76 -- associated with a p-value of 0.02 which is greater than our alpha level of 0.05. Because of this, we reject our null hypothesis that the coefficients relating  `floors` and `basement` to `binary_grade` are equal to 0. As they are not equal to 0, we will keep them in our model. We finish with a model containing 12 predictors. This model is preferred over an intercept-only model based on the likelihood ratio test, which has a $\Delta G$ of 3685.94, and an associated with a p-value of 0.
+
+### Adding Interaction Terms:
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+model_df = train %>% dplyr::select(-c(yr_renovated, grade, lat, bedrooms, bathrooms, view, sqft_lot))
+model = glm(binary_grade~.+yr_built*renovated, model_df, family="binomial")
+```
+Beginning with our base model, we began to explore potential interaction terms using visualizations first. Among the many two-variable interactions we looked at, we found one to be potentially significant: The interaction between `yr_built` and `renovated`, which we examined because we thought `yr_built` would have a different effect on `binary_grade` dependent on whether the house had been renovated or not.
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+ggplot(train, aes(x=yr_built, color=binary_grade)) + geom_density() +
+   facet_wrap(~renovated)
+```
+
+The above graph shows that for non-renovated houses, `yr_built` has a noticeable impact on `binary_grade`. The older a house is for non-renovated houses, the more likely it is to have a construction grade below average. However, this is not the case for renovated houses. A renovated house has the same probability of having a below average grade or having an average/above average grade regardless of the year it is built.
+The other interactions that we looked at appeared to have little or no effect based on our visualizations, so we decided not to include them in our model. On the other hand, the interaction between `yr_built` and `binary_grade` in the presence of our other variables, is significant in predicting `binary_grade` based on the Wald Z test below. Thus, we will keep the interaction in our model moving forward.
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+summary(model)
+```
+
+### Leverages, Outliers, and Influential Points:
+
+We first look at the leverages, outliers, and influential observations using the full model (12 predictors plus interaction term), and then we compare with a smaller model created later on with 3 predictors: `price`, `sqft_living` and `yr_built`.
+
+**Leverages**
+
+1. Full Model:  We run a lm.influence function and filter it against our high leverage classifier: $2*p/n = .0025$ Sorting our observations, we find that house #17475 has the highest leverage with a value of 0.13. Our second and third highest leverages are .12. 
+2. Reduced Model: We have 1889 leverages that are above our flagging value (.00074), which is more than the 1348 we had in our full model. This is expected considering we have less predictors, thus there are more chances for our observations to have predictors that are further away from the center for all data points. 
+
+**Studentized Residuals**
+
+1. Full Model: This model has 162 observations whose predicted response is more than 2 standard deviations away from the actual response. Our largest observations is #18022 -- whose predicted response is 4.44 standard deviations away from the actual response. Our second highest studentized residual is observation #18686, with a value of 3.82.
+2. Reduced Model: We have 162 studentized residuals whose predicted response is more than 2 standard deviations away from the true value -- only one more than our full model. Alot of our top outliers seem to be repeated, observations #18022 and #18686 are top two again.
+
+These observations, especially #18022, can be classified as outliers. When looking at the data for observation #18022: 
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+train["18022",]
+predict(model, train["18022",], type = 'response')
+```
+We see that the house's `price`= 830,000 and `bedrooms`=6, so our model classifies it as a high grade with a predicted response of .9999465 -- in reality it's `grade`= 6, making it a low grade by our cutoff.
+
+Looking at the second highest studentized residual, we see that it is a similiar situation:
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+train["18686",]
+predict(model, train["18686",], type = 'response')
+```
+Another house with high `price` = 1052000 and `sqft_lot15`= 44431 is classified as high grade (a predicted response of .9993), when in actuality it's `grade`= 6.
+
+**Externally Studentized Residuals**
+
+1. Full Model: We have 23 externally studentized residuals with flagged values greater than 3. We see that the observation #18022 and #18686 are outliers once again. 
+2. Reduced Model: We see that we have 20 externally studentized residuals. Alot of our outliers are repeated as before. Interestingly enough, we have 5 less externally studentized residuals than our full model.
+
+**DFFITS**
+
+1. Full Model: We measured the number of standard errors the predicted response changes if the observation is removed, with a cutoff value of 0.03847933. We have 721 observations that are above that value. However, when looking at our top ten DFFIT's values, we see that only really our top five observations can be truly classified as influential when in conjuncture for the DFFITS of the other observations. Our highest leverage for observation #15135 is .18. The following ones are  .15 and .14 before it levels off at the .13 levels.
+2. Reduced Model: We have 721 observations that can be considered influential with a value greater than the flagged: 0.03847933. Again our top 5 observations are outside the range of the rest of our influential observations. 
+
+**Cook's Distance**
+
+We look at the Cook's distance for both the full model and the simple model. Both models had a Cook's distance less than 1 for all observations, the biggest values being .04 for the full model and .02 for the small model. Therefore we can't claim that any of our observations are influential: 
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+model_3 = glm(binary_grade~price+sqft_living+yr_built, model_df, family="binomial")
+sort(cooks.distance(model), decreasing=TRUE)[0:5]
+sort(cooks.distance(model_3), decreasing=TRUE)[0:5]
+```
+
+**Testing Models Without Top 5 Influential Points**
+
+To double check our models and see if they change significantly with and without the influential points, we fit 2 models without the top 5 observations that had noticeably higher influence than the others. We remove the following observations from each model (top 5 influential observations and their values):
+
+1. Full Model: 
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+p<-14
+n<-nrow(train)
+#classifier
+flagger = 2*sqrt(p/n)
+beta_influential = dffits(model)
+beta_influential2 = beta_influential[beta_influential > flagger]
+sort(beta_influential2, decreasing=TRUE)[0:5]
+```
+
+2. Reduced Model:
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+p<-4
+n<-nrow(train)
+#classifier
+flagger = 2*sqrt(p/n)
+beta_influential = dffits(model_3)
+beta_influential2 = beta_influential[beta_influential > flagger]
+sort(beta_influential2, decreasing=TRUE)[0:5]
+```
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+#full model:
+to_remove <- c('16382','11184','17475','231','14472')
+train1 = train %>%
+  filter(!row_number() %in% to_remove)
+
+#reduced model
+to_remove <- c('15135', '2304','4049', '2506','18048')
+train2 = train %>%
+  filter(!row_number() %in% to_remove)
+
+#new models without top 5 influential points:
+no_influential4 = glm(binary_grade~ price+sqft_living+floors+waterfront+condition+yr_built+long+sqft_living15+sqft_lot15+renovated+basement+rooms+yr_built*renovated, train1, family="binomial")
+no_influential5 = glm(binary_grade~price+sqft_living+yr_built, train2, family="binomial")
+```
+
+1. AIC for full model with influential points and then without:
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+summary(model)$aic
+summary(no_influential4)$aic
+```
+
+2. AIC for reduced model with influential points and then without:
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+summary(model_3)$aic
+summary(no_influential5)$aic
+```
+
+In conclusion, due to the size of our data, we have a significant number of obsrvations flagged as influential, high leverage, and outlying. However, looking at our Cook's distance we can't confidently claim that any of our points are truly influential, despite being above the critical value; when removing them from our model we see that changes are minimal at most -- AIC only lowers by .3 and prediction rate is improved by 1 observation. Looking at the predicted responses for outliers, we see that a majority of these outliers are attributed to our `binary_grade` cutoff value of 6 -- thus removing them from our model wouldn't assist in fixing our model. Rather, we can explore if there are better ways to split our grade variable. Since none of these observations significantly alter either of our model's performance, we keep them in our dataset nmoving forward. 
+
+### ROC and AUC:
+
+Because our model with our 12 linear predictors and 1 interaction term is preferred over an intercept-only model, we moved forward with this model. Next, we analyzed its predictive ability. First, we did so by looking at our ROC curve and its AUC value.
+```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.align = 'center'}
+preds = predict(model, newdata=test, type="response")
+rates = prediction(preds, test$binary_grade)
+roc = performance(rates, measure="tpr", x.measure="fpr")
+plot(roc, main="ROC Curve for Model")
+lines(x=c(0, 1), y=c(0, 1), col="#00a8e8")
+```
+
+Our ROC curve lies significantly above that for a random model, which tells us that our model is performing better than a random model that does not account for any of the information given by the predictors. Our AUC value of 0.946 is much greater than the 0.5 value for a random model, telling us once again that our model performs better than a random model.
+
+### Confusion Matrix:
+
+To further analyze our model's predictive performance, we examined the confusion matrix on test data, along with its associated accuracy, true positive, and false positive rates.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+preds = predict(model, newdata=test, type="response")
+confusion_matrix5 = table(test$binary_grade, preds>0.5)
+accuracy5 = (confusion_matrix5[1, 1] + confusion_matrix5[2, 2]) / 10807
+tpr5 = confusion_matrix5[2, 2] / (confusion_matrix5[2, 2] + confusion_matrix5[2, 1])
+fpr5 = confusion_matrix5[1, 2] / (confusion_matrix5[1, 1] + confusion_matrix5[1, 2])
+
+confusion_matrix2 = table(test$binary_grade, preds>0.75)
+accuracy2 = (confusion_matrix2[1, 1] + confusion_matrix2[2, 2]) / 10807
+tpr2 = confusion_matrix2[2, 2] / (confusion_matrix2[2, 2] + confusion_matrix2[2, 1])
+fpr2 = confusion_matrix2[1, 2] / (confusion_matrix2[1, 1] + confusion_matrix2[1, 2])
+
+confusion_frame = data.frame(Threshold=c("0.5 Threshold", "0.75 Threshold"), Accuracy=c(accuracy5, accuracy2), TPR=c(tpr5, tpr2), FPR=c(fpr5, fpr2))
+gt(confusion_frame)
+```
+At a threshold of 0.5, our full model had an accuracy of 93.10% with a true positive rate of 97.58% and a false positive rate of 44.06%. Because our false positive rate was quite high, we decided to raise the threshold. We found that a value of 0.75 only decreased accuracy by about 2 percentage points and true positive rate by 5 percentage points, but decreased our false positive rate by more than half, cutting it down by 2 percentage points. For our purposes of accurately estimating construction grade, the tradeoff in accuracy is worth decreasing the false positive rate to such a great extent.
+
+Because our accuracy was quite high, we decided to examine whether a simpler model could produce a similar result. We felt that a simpler model would potentially be more useful to potential homebuyers, who would find it much easier to estimate construction grade using fewer variables than the 12 parameters that our current model uses. With that in mind, we decreased our model to only 3 variables that are easily accessible on the front page of a realty listing: `price`, `sqft_living`, and `yr_built`. Below is a similar table, comparing our full model's test performance to the 3 variable model:
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+model_3 = glm(binary_grade~price+sqft_living+yr_built, model_df, family="binomial")
+preds3 = predict(model_3, newdata=test, type="response")
+confusion_matrix53 = table(test$binary_grade, preds3>0.5)
+accuracy53 = (confusion_matrix53[1, 1] + confusion_matrix53[2, 2]) / 10807
+tpr53 = confusion_matrix53[2, 2] / (confusion_matrix53[2, 2] + confusion_matrix53[2, 1])
+fpr53 = confusion_matrix53[1, 2] / (confusion_matrix53[1, 1] + confusion_matrix53[1, 2])
+
+confusion_matrix23 = table(test$binary_grade, preds3>0.75)
+accuracy23 = (confusion_matrix23[1, 1] + confusion_matrix23[2, 2]) / 10807
+tpr23 = confusion_matrix23[2, 2] / (confusion_matrix23[2, 2] + confusion_matrix23[2, 1])
+fpr23 = confusion_matrix23[1, 2] / (confusion_matrix23[1, 1] + confusion_matrix23[1, 2])
+
+confusion_frame = data.frame(Model_Threshold=c("0.5 Threshold (Full)", "0.75 Threshold (Full)", "0.5 Threshold (3 Predictor)", "0.75 Threshold (3 Predictor)"), Accuracy=c(accuracy5, accuracy2, accuracy53, accuracy23), TPR=c(tpr5, tpr2, tpr53, tpr23), FPR=c(fpr5, fpr2, fpr53, fpr23))
+gt(confusion_frame)
+```
+Once again, a threshold of 0.75 proves more effective in our case as we want to limit false positives as much as possible without sacrificing too much accuracy. It is especially notable that the drop in accuracy is less than 1 percentage point between the full model with 13 predictors and our reduced model of 3 predictors. Additionally, the true positive rate decreases less than 1 percentage point and the false positive rate increases by just over 1 percentage point. This small difference in our model's test performance leads us to conclude that the superior model in most cases is actually the reduced model that uses just `price`, `sqft_living`, and `yr_built`. For most homebuyers, a complicated 13 coefficient equation would be much harder to make use of than a more simple one involving only 3 predictors. However, if one wanted the highest accuracy possible, we would recommend using the model with 13 predictors. This larger and more accurate model would be especially useful for realtors or insurance agents who could implement the model on a much larger scale, and would be looking for higher accuracy.
+
+### Final Suggestions & Interpretation:
+
+Our final models are seen below.
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+model_df = train %>% dplyr::select(-c(yr_renovated, grade, lat, bedrooms, bathrooms, view, sqft_lot))
+model = glm(binary_grade~.+yr_built*renovated, model_df, family="binomial")
+```
+
+Our full model has a logistic regression equation as follows: $$\begin{aligned} ln(\frac{\pi}{1-\pi}) = -376.6 + 0.000008144(price) + 0.001834(sqft\_living) +0.2306(floors) - 3.376(waterfront)\\ - 0.1172(condition) + 0.05582(yr\_built) - 2.146(long) + 0.0007627(sqft\_living15) - 0.00001007(sqft\_lot15)\\ + 82.73(renovated) - 0.1969(basement) + 0.1302(rooms) - 0.04245(yr\_built*renovated) \end{aligned}$$
+
+Where $\pi$ equals the probability of a house having an average or above construction grade.
+
+This model does answer our question pertaining to which variables we can use to predict whether a house has an average or above construction grade compared to a below average grade. As `price`, `sqft_living`, `yr_built`, `sqft_living15`, `floors`, and `rooms` increase, the probability of a house having an average or above average grade increases, holding all other variables constant. As `condition`, `long`, and `sqft_lot15` increase, the probability of a house having an average or above average grade decreases, holding all other variables constant. Additionally, holding our other predictors constant, a renovated house increases the probability of having an average or above average grade, while a house on the waterfront or a house with a basement decreases that probability. While this equation may be useful for a realtor or insurance company who are looking for the highest possible accuracy and most accurate estimations of the effects of the predictors on the grade, it is much too complex for a prospective homebuyer searching on their own. Because of this, we would recommend our more simple model for prospective homebuyers:
+
+The reduced equation is: $$ln(\frac{\pi}{1-\pi}) = -103.8 + 0.000008552(price) + 0.002151(sqft\_living) + 0.05090(yr\_built)$$ where $\pi$ equals the probability of a house having an average or above construction grade.
+
+This model better answers our question when it comes to prospective buyers as it is much simpler than the other, making it more interpretable for a layperson. Using this equation, it's much easier to see that a one thousand dollar increase in price multiplies the odds of a house being average or above average by $exp(0.008552) = 1.00859$, holding all other variables constant. Similarly, each additional square foot of living space multiplies those odds by $exp(0.002151) = 1.002153$ and as a house's year it is built in increases by 1 (the house is a year younger), those odds are multiplied by $exp(0.05090) = 1.052218$, holding the other variables constant. These values may seem small but on the scale of houses, whose price values range in the hundreds of thousands, square footage in the thousands, and year from the early 1900s to the early 2010s, these can have a large impact. 
